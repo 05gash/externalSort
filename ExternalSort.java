@@ -4,6 +4,7 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -33,12 +34,29 @@ public class ExternalSort {
 		System.out.println(m);
 		boolean readingFromA = true;
 		while(k < numInts){
+			
 			if(readingFromA){
 				fileB1.seek(0);
 			}
 			else{
 				fileA1.seek(0);
 			}
+			
+			//debug
+			System.out.println("reading from A " + readingFromA);
+			try{
+				fileA1.seek(0); 
+				fileB1.seek(0);
+				while(true){
+					int currentInt = readingFromA ? fileA1.readInt() : fileB1.readInt();
+					System.out.println(currentInt);
+				}
+			}
+			
+			catch(EOFException e){
+				
+			}
+			//end debug
 			long i = 0;
 			while(i<m){
 				if(readingFromA){
@@ -113,43 +131,70 @@ public class ExternalSort {
 		DataInputStream A2In = new DataInputStream(new BufferedInputStream(
 				new FileInputStream(a2.getFD())));
 		long a1BlockEnd = a1.getFilePointer() + k2*4;
-		int currentIntA1 = a1.readInt(); 
-		int currentIntA2 = a2.readInt(); 
-		long a1Ptr = a1.getFilePointer();
-		long a2Ptr = a2.getFilePointer();
+		long a1Ptr = a1.getFilePointer() +4;
+		long a2Ptr = a2.getFilePointer() +4;
+		Integer currentIntA1 = A1In.readInt(); 
+		Integer currentIntA2 = A2In.readInt(); 
 
 		while(true){
-			System.out.println("a1 filepointer: " + a1Ptr + ", a2 filepointer:" + a2Ptr);
-			if (a1Ptr >= a1BlockEnd){ //if we are at the end of block 1
-				BOut.writeInt(currentIntA1 <= currentIntA2 ? currentIntA1 : currentIntA2);
-				BOut.writeInt(currentIntA1 <= currentIntA2 ? currentIntA2 : currentIntA1);
-
-				while(a2Ptr <a2BlockEnd){ //we copy the rest of the contents of block 2 into B
+//			if (a1Ptr >= a1BlockEnd){ //if we are at the end of block 1
+//				while(a2Ptr <a2BlockEnd){ //we copy the rest of the contents of block 2 into B, inserting the 
+//					int nextIntA2 = A2In.readInt();
+//					if(currentIntA1<=currentIntA1 && currentIntA1 < nextIntA2){
+//						BOut.writeInt(previous);
+//					}
+//					BOut.writeInt(nextIntA2);
+//					a2Ptr+=4;
+//				}
+//				break;
+//			}
+//			else if (a2Ptr >= a2BlockEnd){ //if we are at the end of block 2
+//				BOut.writeInt(currentIntA1 <= currentIntA2 ? currentIntA1 : currentIntA2);
+//				BOut.writeInt(currentIntA1 <= currentIntA2 ? currentIntA2 : currentIntA2);
+//				while(a1Ptr < a1BlockEnd){ //we copy the rest of the contents of block 1 into B
+//					BOut.writeInt(A1In.readInt());
+//					a1Ptr+=4;
+//				}
+//				break;
+//			}
+//			else{ //we merge
+			if(a1Ptr<=a1BlockEnd && a2Ptr<= a2BlockEnd){
+				if(currentIntA1<=currentIntA2){
+					BOut.writeInt(currentIntA1);
+					if(a1Ptr==a1BlockEnd){
+						currentIntA1 = null;
+					}
+					else{
+						currentIntA1 = A1In.readInt();
+					}
+					a1Ptr+=4;
+				}
+				else if(currentIntA1>currentIntA2){
+					BOut.writeInt(currentIntA2);
+					if(a2Ptr==a2BlockEnd){
+						currentIntA2 = null;
+					}
+					else{
+						currentIntA2 = A2In.readInt();
+					}
+					a2Ptr+=4;
+				}
+			}
+			if(a1Ptr > a1BlockEnd){
+				BOut.writeInt(currentIntA2);
+				while(a2Ptr<a2BlockEnd){
 					BOut.writeInt(A2In.readInt());
 					a2Ptr+=4;
 				}
 				break;
 			}
-			else if (a2Ptr >= a2BlockEnd){ //if we are at the end of block 2
-				BOut.writeInt(currentIntA1 <= currentIntA2 ? currentIntA1 : currentIntA2);
-				BOut.writeInt(currentIntA1 <= currentIntA2 ? currentIntA1 : currentIntA2);
-				while(a1Ptr < a1BlockEnd){ //we copy the rest of the contents of block 1 into B
+			else if(a2Ptr >a2BlockEnd){
+				BOut.writeInt(currentIntA1);
+				while(a1Ptr<a1BlockEnd){
 					BOut.writeInt(A1In.readInt());
 					a1Ptr+=4;
 				}
 				break;
-			}
-			else{ //we merge
-				if(currentIntA1<=currentIntA2){
-					BOut.writeInt(currentIntA1);
-					currentIntA1 = A1In.readInt();
-					a1Ptr+=4;
-				}
-				else if(currentIntA1 > currentIntA2){
-					BOut.writeInt(currentIntA2);
-					currentIntA2 = A2In.readInt();
-					a2Ptr+=4;
-				}
 			}
 		}
 		BOut.flush();
@@ -189,6 +234,16 @@ public class ExternalSort {
 			e.printStackTrace();
 		}
 		return "<error computing checksum>";
+	}
+	
+	//merges
+	public static void mergeFile(RandomAccessFile a1, RandomAccessFile a2, RandomAccessFile b1, long blockSize) throws IOException{
+		DataOutputStream BOut = new DataOutputStream(new BufferedOutputStream(
+				new FileOutputStream(b1.getFD())));
+		DataInputStream A1In = new DataInputStream(new BufferedInputStream(
+				new FileInputStream(a1.getFD())));
+		DataInputStream A2In = new DataInputStream(new BufferedInputStream(
+				new FileInputStream(a2.getFD())));
 	}
 
 	public static void main(String[] args) throws Exception {
