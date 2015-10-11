@@ -18,14 +18,18 @@ public class ExternalSort {
 	
 	//we dont work in bytes instead we work in number of integers.
 
-	static private long k;
-
 	public static void sort(String f1, String f2) throws FileNotFoundException,
 			IOException {
 		RandomAccessFile fileA1 = new RandomAccessFile(f1, "rw");
 		RandomAccessFile fileA2 = new RandomAccessFile(f1, "rw");
 		RandomAccessFile fileB1 = new RandomAccessFile(f2, "rw");
 		RandomAccessFile fileB2 = new RandomAccessFile(f2, "rw");
+		DataOutputStream b1Out = null;
+		DataInputStream b1In = null;
+		DataInputStream b2In = null;
+		DataOutputStream a1Out = null;
+		DataInputStream a1In = null;
+		DataInputStream a2In = null;
 
 		long k = 1; //size of blocks(no of integers)
 		long m = fileA1.length()/4; //no of blocks?
@@ -37,25 +41,41 @@ public class ExternalSort {
 			
 			if(readingFromA){
 				fileB1.seek(0);
+				fileA1.seek(0);
+				a1In = new DataInputStream(
+					    new BufferedInputStream(new FileInputStream(fileA1.getFD())));
+				fileA2.seek(k*4);
+				a2In = new DataInputStream(
+					    new BufferedInputStream(new FileInputStream(fileA2.getFD())));
+				b1Out = new DataOutputStream(
+					    new BufferedOutputStream(new FileOutputStream(fileB1.getFD())));
 			}
 			else{
 				fileA1.seek(0);
+				fileB1.seek(0);
+				b1In = new DataInputStream(
+					    new BufferedInputStream(new FileInputStream(fileB1.getFD())));
+				fileB2.seek(k*4);
+				b2In = new DataInputStream(
+					    new BufferedInputStream(new FileInputStream(fileB2.getFD())));
+				a1Out = new DataOutputStream(
+					    new BufferedOutputStream(new FileOutputStream(fileA1.getFD())));
 			}
 			
 			//debug
-			System.out.println("reading from A " + readingFromA);
-			try{
-				fileA1.seek(0); 
-				fileB1.seek(0);
-				while(true){
-					int currentInt = readingFromA ? fileA1.readInt() : fileB1.readInt();
-					System.out.println(currentInt);
-				}
-			}
-			
-			catch(EOFException e){
-				
-			}
+//			System.out.println("reading from A " + readingFromA);
+//			try{
+//				fileA1.seek(0); 
+//				fileB1.seek(0);
+//				while(true){
+//					int currentInt = readingFromA ? fileA1.readInt() : fileB1.readInt();
+//					System.out.println(currentInt);
+//				}
+//			}
+//			
+//			catch(EOFException e){
+//				
+//			}
 			//end debug
 			long i = 0;
 			while(i<m){
@@ -63,22 +83,19 @@ public class ExternalSort {
 					//we see if the first blocksize will underfill
 					if((i+1)*k>=numInts){
 						//it does, we copy these elements into B.
-						fileA1.seek(i*k*4);
-						copyTo(fileA1, numInts-i*k, fileB1);
+						copyTo(a1In, numInts-i*k, b1Out);
 						i++;
 					}//the 2nd blocksize will underfill,
 					else if ((i+2)*k>numInts){
-						fileA1.seek(i*k*4);
 						i++;
-						fileA2.seek(i*k*4);
-						mergeBlocks(fileA1, fileA2, numInts, fileB1, k);
+						mergeBlocks(a1In, a2In, (i-1)*k*4, i*k*4,  numInts*4, b1Out, k);
 						i++;
 					}
 					else{//normal behavior
-						fileA1.seek(i*k*4);
 						i++;
-						fileA2.seek(i*k*4);
-						mergeBlocks(fileA1, fileA2, (i+1)*k*4, fileB1, k);
+						mergeBlocks(a1In, a2In, (i-1)*k*4, i*k*4, (i+1)*k*4, b1Out, k);
+						a1In.skip(k*4);
+						a2In.skip(k*4);
 						i++;
 					}
 				}
@@ -86,21 +103,19 @@ public class ExternalSort {
 					//we see if the first blocksize will underfill
 					if((i+1)*k>=numInts){
 						//it does, we copy these elements into B.
-						copyTo(fileB1, numInts-i*k, fileA1);
+						copyTo(b1In, numInts-i*k, a1Out);
 						i++;
 					}//the 2nd blocksize will underfill,
 					else if ((i+2)*k>numInts){
-						fileB1.seek(i*k*4);
 						i++;
-						fileB2.seek(i*k*4);
-						mergeBlocks(fileB1, fileB2, numInts, fileA1, k);
+						mergeBlocks(b1In, b2In, (i-1)*k*4, i*k*4, numInts*4, a1Out, k);
 						i++;
 					}
 					else{//normal behavior
-						fileB1.seek(i*k*4);
 						i++;
-						fileB2.seek(i*k*4);
-						mergeBlocks(fileB1, fileB2, (i+1)*k*4, fileA1, k);
+						mergeBlocks(b1In, b2In, (i-1)*k*4, i*k*4, (i+1)*k*4, a1Out, k);
+						b1In.skip(k*4);
+						b2In.skip(k*4);
 						i++;
 					}	
 				}
@@ -108,6 +123,15 @@ public class ExternalSort {
 			m=(m+1)/2;
 			k=k*2;
 			readingFromA = !readingFromA;
+		}
+		if(!readingFromA){
+			fileB1.seek(0);
+			b1In = new DataInputStream(
+				    new BufferedInputStream(new FileInputStream(fileB1.getFD())));
+			fileA1.seek(0);
+			a1Out = new DataOutputStream(
+				    new BufferedOutputStream(new FileOutputStream(fileA1.getFD())));
+			copyTo(b1In, numInts, a1Out);
 		}
 		fileA1.close();
 		fileA2.close();
@@ -123,18 +147,13 @@ public class ExternalSort {
 		return r;
 	}
 	
-	public static void mergeBlocks(RandomAccessFile a1,RandomAccessFile a2, long a2BlockEnd, RandomAccessFile b, long k2) throws IOException{
-		DataOutputStream BOut = new DataOutputStream(new BufferedOutputStream(
-				new FileOutputStream(b.getFD())));
-		DataInputStream A1In = new DataInputStream(new BufferedInputStream(
-				new FileInputStream(a1.getFD())));
-		DataInputStream A2In = new DataInputStream(new BufferedInputStream(
-				new FileInputStream(a2.getFD())));
-		long a1BlockEnd = a1.getFilePointer() + k2*4;
-		long a1Ptr = a1.getFilePointer() +4;
-		long a2Ptr = a2.getFilePointer() +4;
-		Integer currentIntA1 = A1In.readInt(); 
-		Integer currentIntA2 = A2In.readInt(); 
+	public static void mergeBlocks(DataInputStream A1In, DataInputStream A2In,long a1Ptr, long a2Ptr, long a2BlockEnd, DataOutputStream BOut, long k2) throws IOException{
+		
+		long a1BlockEnd = a1Ptr + k2*4;
+		a1Ptr +=4;
+		a2Ptr +=4;
+		int currentIntA1 = A1In.readInt(); 
+		int currentIntA2 = A2In.readInt(); 
 
 		while(true){
 //			if (a1Ptr >= a1BlockEnd){ //if we are at the end of block 1
@@ -162,7 +181,7 @@ public class ExternalSort {
 				if(currentIntA1<=currentIntA2){
 					BOut.writeInt(currentIntA1);
 					if(a1Ptr==a1BlockEnd){
-						currentIntA1 = null;
+						currentIntA1 = 0;
 					}
 					else{
 						currentIntA1 = A1In.readInt();
@@ -172,7 +191,7 @@ public class ExternalSort {
 				else if(currentIntA1>currentIntA2){
 					BOut.writeInt(currentIntA2);
 					if(a2Ptr==a2BlockEnd){
-						currentIntA2 = null;
+						currentIntA2 = 0;
 					}
 					else{
 						currentIntA2 = A2In.readInt();
@@ -201,11 +220,7 @@ public class ExternalSort {
 	}
 	
 	
-	public static void copyTo(RandomAccessFile a1, long noElements, RandomAccessFile b1) throws IOException{
-		DataOutputStream bOut = new DataOutputStream(new BufferedOutputStream(
-				new FileOutputStream(b1.getFD())));
-		DataInputStream a1In = new DataInputStream(new BufferedInputStream(
-				new FileInputStream(a1.getFD())));
+	public static void copyTo(DataInputStream a1In, long noElements, DataOutputStream bOut) throws IOException{
 		for(int i=0; i<noElements; i++){
 			bOut.writeInt(a1In.readInt());
 		}
